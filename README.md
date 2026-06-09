@@ -78,6 +78,7 @@ Planned expansion:
 
 ```text
 .
+├── assets/               # Runtime config templates bundled into packages
 ├── docs/                 # Release and packaging documentation
 └── .github/workflows/    # Build and publish workflows
 ```
