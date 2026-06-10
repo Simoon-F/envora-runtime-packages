@@ -247,9 +247,6 @@ jobs:
           copy_homebrew_deps() {
             local copied=0
             local scan_files=("${runtime_files[@]}")
-            # libiconv is provided by the macOS system (in dyld shared cache);
-            # Homebrew's version lacks symbols that libintl expects, so skip it.
-            local skip_names="libiconv.2.dylib"
 
             if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
               for dylib in "$bundle_dir"/*.dylib; do
@@ -259,15 +256,10 @@ jobs:
 
             for file in "${scan_files[@]}"; do
               while IFS= read -r dep; do
-                local dep_name
-                dep_name="$(dylib_name "$dep")"
-                if [[ " $skip_names " == *" $dep_name "* ]]; then
-                  continue
-                fi
                 case "$dep" in
                   /opt/homebrew/*|/usr/local/*)
                     if [[ -f "$dep" ]]; then
-                      local target="$bundle_dir/$dep_name"
+                      local target="$bundle_dir/$(dylib_name "$dep")"
                       if [[ ! -f "$target" ]]; then
                         cp -L "$dep" "$target"
                         chmod u+w "$target"
@@ -276,7 +268,7 @@ jobs:
                     fi
                     ;;
                   @rpath/*|@loader_path/*)
-                    if copy_dylib_by_name "$dep_name"; then
+                    if copy_dylib_by_name "$(dylib_name "$dep")"; then
                       copied=1
                     fi
                     ;;
@@ -321,13 +313,6 @@ jobs:
             while IFS= read -r dep; do
               local name
               name="$(dylib_name "$dep")"
-              # libiconv is resolved from the macOS system at runtime
-              if [[ "$name" == "libiconv.2.dylib" ]]; then
-                if [[ "$dep" != "/usr/lib/$name" ]]; then
-                  install_name_tool -change "$dep" "/usr/lib/$name" "$file" || true
-                fi
-                continue
-              fi
               if [[ -f "$bundle_dir/$name" && "$dep" != "$prefix/$name" ]]; then
                 install_name_tool -change "$dep" "$prefix/$name" "$file" || true
               fi
@@ -359,6 +344,24 @@ jobs:
             printf "%s" "$remaining_homebrew_refs"
             exit 1
           fi
+
+          # Diagnose libiconv symbol situation
+          echo "=== libiconv diagnostics ==="
+          if [[ -f "$bundle_dir/libiconv.2.dylib" ]]; then
+            echo "Bundled libiconv.2.dylib symbols (T = exported):"
+            nm -gU "$bundle_dir/libiconv.2.dylib" 2>/dev/null | grep -i iconv || echo "(no iconv symbols found)"
+            echo "Bundled libiconv.2.dylib UUID:"
+            otool -l "$bundle_dir/libiconv.2.dylib" | grep -A2 "LC_ID_DYLIB" || true
+          else
+            echo "No libiconv.2.dylib in bundle"
+          fi
+          echo "libintl references:"
+          otool -L "$bundle_dir/libintl.8.dylib" 2>/dev/null | grep iconv || echo "(no iconv refs)"
+          echo "php references to iconv:"
+          otool -L "$install_dir/bin/php" | grep iconv || echo "(no iconv refs)"
+          echo "System /usr/lib/libiconv.2.dylib exists: $(test -f /usr/lib/libiconv.2.dylib && echo yes || echo no)"
+          echo "Homebrew libiconv path: $(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "libiconv.2.dylib" -type f -print -quit 2>/dev/null || echo not-found)"
+          echo "=== end diagnostics ==="
 
           for file in "${runtime_files[@]}"; do
             codesign --force --sign - "$file" || true
