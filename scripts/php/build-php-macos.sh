@@ -9,7 +9,6 @@ deps=(
   re2c
   pkg-config
   openssl@3
-  libxml2
   oniguruma
   curl
   sqlite
@@ -22,7 +21,6 @@ deps=(
   libffi
   libpng
   libsodium
-  libxslt
   libzip
   brotli
 )
@@ -59,9 +57,15 @@ export CFLAGS="-I$sdkroot/usr/include -I$brew_prefix/include -I$brew_opt/zlib/in
 export CPPFLAGS="-I$sdkroot/usr/include -I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
 export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
 export LIBS="-lintl"
+export LIBXML_CFLAGS="-I$sdkroot/usr/include/libxml2"
+export LIBXML_LIBS="-lxml2"
+export XSL_CFLAGS="-I$sdkroot/usr/include/libxml2"
+export XSL_LIBS="-lxslt -lxml2"
+export EXSLT_CFLAGS="-I$sdkroot/usr/include/libxml2"
+export EXSLT_LIBS="-lexslt -lxslt -lxml2"
 
 pkg_config_path="$brew_prefix/lib/pkgconfig"
-for pkg in openssl@3 libxml2 curl oniguruma sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libxslt libzip; do
+for pkg in openssl@3 curl oniguruma sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libzip; do
   path="$brew_opt/$pkg/lib/pkgconfig"
   [[ -d "$path" ]] && pkg_config_path="$pkg_config_path:$path"
 done
@@ -75,7 +79,7 @@ cd "$source_dir"
   --with-openssl \
   --with-curl \
   --with-zlib \
-  --with-iconv=/usr \
+  --with-iconv="$sdkroot/usr" \
   --with-bz2=shared,"$brew_opt/bzip2" \
   --enable-mbstring \
   --enable-bcmath=shared \
@@ -93,7 +97,7 @@ cd "$source_dir"
   --enable-soap=shared \
   --enable-sockets=shared \
   --with-ffi=shared,"$brew_opt/libffi" \
-  --with-xsl=shared,"$brew_opt/libxslt" \
+  --with-xsl=shared \
   --with-zip=shared,"$brew_opt/libzip" \
   --enable-fpm \
   --with-pdo-mysql=mysqlnd \
