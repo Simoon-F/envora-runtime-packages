@@ -213,14 +213,14 @@ jobs:
             local name="$1"
             local candidate
 
-            candidate="$(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
-            if [[ -n "$candidate" ]]; then
-              printf "%s" "$candidate"
+            if [[ -f "/usr/lib/$name" ]]; then
+              printf "%s" "/usr/lib/$name"
               return 0
             fi
 
-            if [[ -f "/usr/lib/$name" ]]; then
-              printf "%s" "/usr/lib/$name"
+            candidate="$(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
+            if [[ -n "$candidate" ]]; then
+              printf "%s" "$candidate"
               return 0
             fi
 
