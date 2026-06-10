@@ -44,11 +44,11 @@ Each release should include:
 
 - Binary archives
 - `.sha256` checksum files
+- `{runtime}-{version}-manifest.json`
 - Short release notes
 
 Optional future assets:
 
-- `manifest.json`
 - signature files
 - SBOM or provenance artifacts
 

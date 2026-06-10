@@ -47,358 +47,23 @@ jobs:
             exit 1
           fi
 
-      - name: Install build dependencies
+      - name: Prepare packaging scripts
         shell: bash
         run: |
           set -euo pipefail
-          deps=(
-            autoconf
-            bison
-            re2c
-            pkg-config
-            openssl@3
-            libxml2
-            oniguruma
-            curl
-            sqlite
-            zlib
-            bzip2
-            freetype
-            gettext
-            icu4c
-            jpeg-turbo
-            libffi
-            libpng
-            libsodium
-            libxslt
-            libzip
-            brotli
-          )
-          missing=()
+          chmod +x scripts/php/*.sh
 
-          for dep in "${deps[@]}"; do
-            if ! brew list --formula "$dep" >/dev/null 2>&1; then
-              missing+=("$dep")
-            fi
-          done
-
-          if (( ${#missing[@]} > 0 )); then
-            brew install "${missing[@]}"
-          else
-            echo "All PHP build dependencies are already installed."
-          fi
-
-      - name: Download PHP source
+      - name: Build PHP
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ inputs.version }}"
-          work_dir="/tmp/php-build-${version}"
-          rm -rf "$work_dir"
-          mkdir -p "$work_dir"
-          curl -fsSL "https://www.php.net/distributions/php-${version}.tar.gz" -o "$work_dir/php-${version}.tar.gz"
-          tar -xzf "$work_dir/php-${version}.tar.gz" -C "$work_dir"
+          scripts/php/build-php-macos.sh "${{ inputs.version }}"
 
-      - name: Configure PHP
+      - name: Package and verify runtime
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ inputs.version }}"
-          brew_prefix="$(brew --prefix)"
-          brew_opt="$brew_prefix/opt"
-          sdkroot="$(xcrun --sdk macosx --show-sdk-path)"
-          source_dir="/tmp/php-build-${version}/php-${version}"
-          install_dir="/tmp/php-package/${version}"
-
-          rm -rf "/tmp/php-package"
-          rm -rf "$install_dir"
-          mkdir -p "$install_dir"
-
-          export TERM=dumb
-          export PATH="$brew_opt/bison/bin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          export CFLAGS="-I$sdkroot/usr/include -I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
-          export CPPFLAGS="-I$sdkroot/usr/include -I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
-          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
-          export LIBS="-lintl"
-
-          pkg_config_path="$brew_prefix/lib/pkgconfig"
-          for pkg in openssl@3 libxml2 curl oniguruma sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libxslt libzip; do
-            path="$brew_opt/$pkg/lib/pkgconfig"
-            [[ -d "$path" ]] && pkg_config_path="$pkg_config_path:$path"
-          done
-          export PKG_CONFIG_PATH="$pkg_config_path"
-
-          cd "$source_dir"
-          ./configure \
-            --prefix="$install_dir" \
-            --with-config-file-path="$install_dir/lib" \
-            --with-config-file-scan-dir="$install_dir/etc/conf.d" \
-            --with-openssl \
-            --with-curl \
-            --with-zlib \
-            --with-iconv=/usr \
-            --with-bz2=shared,"$brew_opt/bzip2" \
-            --enable-mbstring \
-            --enable-bcmath=shared \
-            --enable-calendar=shared \
-            --enable-exif=shared \
-            --enable-ftp=shared \
-            --enable-gd=shared \
-            --with-jpeg \
-            --with-freetype \
-            --with-gettext=shared,"$brew_opt/gettext" \
-            --enable-intl=shared \
-            --enable-pcntl=shared \
-            --enable-shmop=shared \
-            --with-sodium=shared,"$brew_opt/libsodium" \
-            --enable-soap=shared \
-            --enable-sockets=shared \
-            --with-ffi=shared,"$brew_opt/libffi" \
-            --with-xsl=shared,"$brew_opt/libxslt" \
-            --with-zip=shared,"$brew_opt/libzip" \
-            --enable-fpm \
-            --with-pdo-mysql=mysqlnd \
-            --with-mysqli=mysqlnd \
-            --with-libxml \
-            --enable-opcache=shared
-
-      - name: Build and install PHP
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ inputs.version }}"
-          source_dir="/tmp/php-build-${version}/php-${version}"
-
-          cd "$source_dir"
-          make -j"$(sysctl -n hw.ncpu)"
-          make install
-
-      - name: Prepare runtime package
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ inputs.version }}"
-          arch="${{ matrix.arch }}"
-          brew_prefix="$(brew --prefix)"
-          package_root="/tmp/php-package"
-          install_dir="$package_root/${version}"
-          package="$package_root/php-${version}-macos-${arch}.tar.gz"
-
-          mkdir -p "$install_dir/etc/conf.d" "$install_dir/var/run" "$install_dir/var/log"
-
-          if [[ -f assets/php.ini.default ]]; then
-            cp assets/php.ini.default "$install_dir/lib/php.ini"
-          fi
-
-          runtime_files=()
-          for bin in "$install_dir/bin/php" "$install_dir/bin/php-cgi" "$install_dir/sbin/php-fpm"; do
-            [[ -f "$bin" ]] && runtime_files+=("$bin")
-          done
-          while IFS= read -r -d '' so; do
-            runtime_files+=("$so")
-          done < <(find "$install_dir/lib/php/extensions" -name "*.so" -type f -print0 2>/dev/null)
-
-          for file in "${runtime_files[@]}"; do
-            strip "$file" || true
-          done
-
-          bundle_dir="$install_dir/lib/envora-dylibs"
-          mkdir -p "$bundle_dir"
-
-          dylib_name() {
-            basename "$1"
-          }
-
-          should_bundle_dylib() {
-            case "$(dylib_name "$1")" in
-              libiconv.2.dylib)
-                return 1
-                ;;
-            esac
-            return 0
-          }
-
-          find_system_dylib() {
-            local name="$1"
-            local candidate
-
-            if [[ -f "/usr/lib/$name" ]]; then
-              printf "%s" "/usr/lib/$name"
-              return 0
-            fi
-
-            candidate="$(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
-            if [[ -n "$candidate" ]]; then
-              printf "%s" "$candidate"
-              return 0
-            fi
-
-            return 1
-          }
-
-          copy_dylib_by_name() {
-            local name="$1"
-            local source
-            local target="$bundle_dir/$name"
-
-            should_bundle_dylib "$name" || return 1
-            [[ -f "$target" ]] && return 1
-
-            source="$(find_system_dylib "$name")"
-            if [[ -n "$source" && -f "$source" ]]; then
-              cp -L "$source" "$target"
-              chmod u+w "$target"
-              return 0
-            fi
-
-            return 1
-          }
-
-          copy_homebrew_deps() {
-            local copied=0
-            local scan_files=("${runtime_files[@]}")
-
-            if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
-              for dylib in "$bundle_dir"/*.dylib; do
-                scan_files+=("$dylib")
-              done
-            fi
-
-            for file in "${scan_files[@]}"; do
-              while IFS= read -r dep; do
-                case "$dep" in
-                  /opt/homebrew/*|/usr/local/*)
-                    if [[ -f "$dep" ]] && should_bundle_dylib "$dep"; then
-                      local target="$bundle_dir/$(dylib_name "$dep")"
-                      if [[ ! -f "$target" ]]; then
-                        cp -L "$dep" "$target"
-                        chmod u+w "$target"
-                        copied=1
-                      fi
-                    fi
-                    ;;
-                  @rpath/*|@loader_path/*)
-                    if copy_dylib_by_name "$(dylib_name "$dep")"; then
-                      copied=1
-                    fi
-                    ;;
-                esac
-              done < <(otool -L "$file" | awk 'NR > 1 { print $1 }')
-            done
-
-            if (( copied == 1 )); then
-              return 0
-            fi
-            return 1
-          }
-
-          for _ in {1..12}; do
-            if copy_homebrew_deps; then
-              :
-            else
-              break
-            fi
-          done
-
-          patch_load_commands() {
-            local file="$1"
-            local prefix
-
-            case "$file" in
-              "$install_dir/bin/"*|"$install_dir/sbin/"*)
-                prefix="@loader_path/../lib/envora-dylibs"
-                ;;
-              "$install_dir/lib/php/extensions/"*)
-                prefix="@loader_path/../../../envora-dylibs"
-                ;;
-              "$bundle_dir/"*)
-                prefix="@loader_path"
-                install_name_tool -id "$prefix/$(basename "$file")" "$file" || true
-                ;;
-              *)
-                prefix="@loader_path/../lib/envora-dylibs"
-                ;;
-            esac
-
-            while IFS= read -r dep; do
-              local name
-              name="$(dylib_name "$dep")"
-              if [[ "$name" == "libiconv.2.dylib" && "$dep" != "/usr/lib/libiconv.2.dylib" ]]; then
-                install_name_tool -change "$dep" "/usr/lib/libiconv.2.dylib" "$file" || true
-              elif should_bundle_dylib "$name" && [[ -f "$bundle_dir/$name" && "$dep" != "$prefix/$name" ]]; then
-                install_name_tool -change "$dep" "$prefix/$name" "$file" || true
-              fi
-            done < <(otool -L "$file" | awk 'NR > 1 { print $1 }')
-          }
-
-          for file in "${runtime_files[@]}"; do
-            patch_load_commands "$file"
-          done
-          if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
-            for dylib in "$bundle_dir"/*.dylib; do
-              patch_load_commands "$dylib"
-            done
-          fi
-
-          remaining_homebrew_refs=""
-          for file in "${runtime_files[@]}"; do
-            refs="$(otool -L "$file" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local|@rpath)/' || true)"
-            [[ -n "$refs" ]] && remaining_homebrew_refs+="$file"$'\n'"$refs"$'\n'
-          done
-          if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
-            for dylib in "$bundle_dir"/*.dylib; do
-              refs="$(otool -L "$dylib" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local|@rpath)/' || true)"
-              [[ -n "$refs" ]] && remaining_homebrew_refs+="$dylib"$'\n'"$refs"$'\n'
-            done
-          fi
-          if [[ -n "$remaining_homebrew_refs" ]]; then
-            echo "Found unbundled Homebrew dylib references:"
-            printf "%s" "$remaining_homebrew_refs"
-            exit 1
-          fi
-
-          for file in "${runtime_files[@]}"; do
-            codesign --force --sign - "$file" || true
-          done
-          if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
-            for dylib in "$bundle_dir"/*.dylib; do
-              codesign --force --sign - "$dylib" || true
-            done
-          fi
-
-          "$install_dir/bin/php" -v
-          echo "Loadable extensions:"
-          find "$install_dir/lib/php/extensions" -maxdepth 3 -type f -name "*.so" -print | sort
-
-          "$install_dir/bin/php" -m | grep -iE "curl|mbstring|mysqli|mysqlnd|openssl|pdo|opcache"
-          required_extensions=(
-            bcmath
-            bz2
-            calendar
-            exif
-            ffi
-            ftp
-            gd
-            gettext
-            intl
-            opcache
-            pcntl
-            shmop
-            soap
-            sockets
-            sodium
-            xsl
-            zip
-          )
-
-          for extension in "${required_extensions[@]}"; do
-            test -f "$install_dir/lib/php/extensions"/*/"$extension.so"
-          done
-
-          cd "$package_root"
-          tar -czf "$package" "$version"
-          shasum -a 256 "$package" > "$package.sha256"
-          ls -lh "$package" "$package.sha256"
+          scripts/php/package-macos-runtime.sh "${{ inputs.version }}" "${{ matrix.arch }}"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
@@ -435,7 +100,11 @@ jobs:
           tag="php-${VERSION}"
           title="PHP ${VERSION} macOS runtimes"
           notes_file="$RUNNER_TEMP/php-release-notes.md"
+          manifest_file="$RUNNER_TEMP/php-${VERSION}-manifest.json"
           repo="${GITHUB_REPOSITORY}"
+
+          chmod +x scripts/php/*.sh
+          scripts/php/write-manifest.sh "$VERSION" dist "$manifest_file"
 
           {
             echo "Pre-compiled PHP ${VERSION} runtimes for Envora on macOS."
@@ -456,4 +125,4 @@ jobs:
             gh release create "$tag" --repo "$repo" --title "$title" --notes-file "$notes_file"
           fi
 
-          gh release upload "$tag" dist/* --repo "$repo" --clobber
+          gh release upload "$tag" dist/* "$manifest_file" --repo "$repo" --clobber

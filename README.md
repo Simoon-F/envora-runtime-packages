@@ -17,7 +17,7 @@ The goal is to keep application releases and binary asset releases separate:
 - Checksum files such as `.sha256`
 - Release-specific packaging notes
 - Build and publish workflow definitions
-- Future manifests for runtime discovery and integrity checks
+- Runtime manifests for discovery and integrity checks
 
 ## Naming Convention
 
@@ -54,7 +54,7 @@ Recommended companion assets:
 
 ```text
 {filename}.sha256
-manifest.json
+{runtime}-{version}-manifest.json
 ```
 
 ## Current Scope
@@ -85,21 +85,41 @@ Planned expansion:
 .
 ├── assets/               # Runtime config templates bundled into packages
 ├── docs/                 # Release and packaging documentation
+├── scripts/              # Runtime build, package, verify, and manifest scripts
 └── .github/workflows/    # Build and publish workflows
 ```
 
 This repository may stay intentionally light in source code and heavy in release
 assets, workflow automation, and packaging notes.
 
+## PHP Package Pipeline
+
+The PHP macOS workflow is split into explicit stages:
+
+```text
+scripts/php/build-php-macos.sh
+scripts/php/package-macos-runtime.sh
+scripts/php/verify-macos-runtime.sh
+scripts/php/write-manifest.sh
+```
+
+Packages are published only after verification passes. Verification checks that
+the packaged runtime can start, common extensions are present and loadable, and
+Mach-O dependencies no longer reference Homebrew paths such as `/opt/homebrew`
+or `/usr/local`.
+
 ## Relationship To Envora
 
 The main Envora application downloads runtime assets from this repository's
-GitHub Releases. For example, the PHP provider in the main application resolves
-download URLs from:
+GitHub Releases. Runtime discovery should use the release manifest whenever
+possible. For example, a PHP release includes:
 
 ```text
-https://github.com/Simoon-F/envora-runtime-packages/releases/download/{tag}/{filename}
+php-{version}-manifest.json
 ```
+
+The manifest contains platform-specific URLs, checksums, minimum macOS version,
+and packaged extension names.
 
 ## Publishing Principles
 
