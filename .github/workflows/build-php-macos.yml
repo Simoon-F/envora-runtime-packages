@@ -209,12 +209,22 @@ jobs:
             basename "$1"
           }
 
-          find_brew_dylib() {
+          find_system_dylib() {
             local name="$1"
             local candidate
 
             candidate="$(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
-            [[ -n "$candidate" ]] && printf "%s" "$candidate"
+            if [[ -n "$candidate" ]]; then
+              printf "%s" "$candidate"
+              return 0
+            fi
+
+            if [[ -f "/usr/lib/$name" ]]; then
+              printf "%s" "/usr/lib/$name"
+              return 0
+            fi
+
+            return 1
           }
 
           copy_dylib_by_name() {
@@ -224,7 +234,7 @@ jobs:
 
             [[ -f "$target" ]] && return 1
 
-            source="$(find_brew_dylib "$name")"
+            source="$(find_system_dylib "$name")"
             if [[ -n "$source" && -f "$source" ]]; then
               cp -L "$source" "$target"
               chmod u+w "$target"
