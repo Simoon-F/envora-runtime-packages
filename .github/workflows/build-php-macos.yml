@@ -60,7 +60,6 @@ jobs:
             libxml2
             oniguruma
             curl
-            libiconv
             sqlite
             zlib
             bzip2
@@ -116,13 +115,13 @@ jobs:
 
           export TERM=dumb
           export PATH="$brew_opt/bison/bin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          export CFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
-          export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
-          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
+          export CFLAGS="-I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
+          export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
+          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
           export LIBS="-lintl"
 
           pkg_config_path="$brew_prefix/lib/pkgconfig"
-          for pkg in openssl@3 libxml2 curl oniguruma libiconv sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libxslt libzip; do
+          for pkg in openssl@3 libxml2 curl oniguruma sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libxslt libzip; do
             path="$brew_opt/$pkg/lib/pkgconfig"
             [[ -d "$path" ]] && pkg_config_path="$pkg_config_path:$path"
           done
@@ -136,7 +135,7 @@ jobs:
             --with-openssl \
             --with-curl \
             --with-zlib \
-            --with-iconv="$brew_opt/libiconv" \
+            --with-iconv \
             --with-bz2=shared,"$brew_opt/bzip2" \
             --enable-mbstring \
             --enable-bcmath=shared \
@@ -209,6 +208,15 @@ jobs:
             basename "$1"
           }
 
+          should_bundle_dylib() {
+            case "$(dylib_name "$1")" in
+              libiconv.2.dylib)
+                return 1
+                ;;
+            esac
+            return 0
+          }
+
           find_system_dylib() {
             local name="$1"
             local candidate
@@ -232,6 +240,7 @@ jobs:
             local source
             local target="$bundle_dir/$name"
 
+            should_bundle_dylib "$name" || return 1
             [[ -f "$target" ]] && return 1
 
             source="$(find_system_dylib "$name")"
@@ -258,7 +267,7 @@ jobs:
               while IFS= read -r dep; do
                 case "$dep" in
                   /opt/homebrew/*|/usr/local/*)
-                    if [[ -f "$dep" ]]; then
+                    if [[ -f "$dep" ]] && should_bundle_dylib "$dep"; then
                       local target="$bundle_dir/$(dylib_name "$dep")"
                       if [[ ! -f "$target" ]]; then
                         cp -L "$dep" "$target"
@@ -313,7 +322,9 @@ jobs:
             while IFS= read -r dep; do
               local name
               name="$(dylib_name "$dep")"
-              if [[ -f "$bundle_dir/$name" && "$dep" != "$prefix/$name" ]]; then
+              if [[ "$name" == "libiconv.2.dylib" && "$dep" != "/usr/lib/libiconv.2.dylib" ]]; then
+                install_name_tool -change "$dep" "/usr/lib/libiconv.2.dylib" "$file" || true
+              elif should_bundle_dylib "$name" && [[ -f "$bundle_dir/$name" && "$dep" != "$prefix/$name" ]]; then
                 install_name_tool -change "$dep" "$prefix/$name" "$file" || true
               fi
             done < <(otool -L "$file" | awk 'NR > 1 { print $1 }')
@@ -344,24 +355,6 @@ jobs:
             printf "%s" "$remaining_homebrew_refs"
             exit 1
           fi
-
-          # Diagnose libiconv symbol situation
-          echo "=== libiconv diagnostics ==="
-          if [[ -f "$bundle_dir/libiconv.2.dylib" ]]; then
-            echo "Bundled libiconv.2.dylib symbols (T = exported):"
-            nm -gU "$bundle_dir/libiconv.2.dylib" 2>/dev/null | grep -i iconv || echo "(no iconv symbols found)"
-            echo "Bundled libiconv.2.dylib UUID:"
-            otool -l "$bundle_dir/libiconv.2.dylib" | grep -A2 "LC_ID_DYLIB" || true
-          else
-            echo "No libiconv.2.dylib in bundle"
-          fi
-          echo "libintl references:"
-          otool -L "$bundle_dir/libintl.8.dylib" 2>/dev/null | grep iconv || echo "(no iconv refs)"
-          echo "php references to iconv:"
-          otool -L "$install_dir/bin/php" | grep iconv || echo "(no iconv refs)"
-          echo "System /usr/lib/libiconv.2.dylib exists: $(test -f /usr/lib/libiconv.2.dylib && echo yes || echo no)"
-          echo "Homebrew libiconv path: $(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "libiconv.2.dylib" -type f -print -quit 2>/dev/null || echo not-found)"
-          echo "=== end diagnostics ==="
 
           for file in "${runtime_files[@]}"; do
             codesign --force --sign - "$file" || true
