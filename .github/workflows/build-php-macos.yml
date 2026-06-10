@@ -117,7 +117,7 @@ jobs:
           export PATH="$brew_opt/bison/bin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
           export CFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
           export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
-          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib"
+          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
           export LIBS="-lintl"
 
           pkg_config_path="$brew_prefix/lib/pkgconfig"
@@ -188,17 +188,125 @@ jobs:
             cp assets/php.ini.default "$install_dir/lib/php.ini"
           fi
 
+          runtime_files=()
           for bin in "$install_dir/bin/php" "$install_dir/bin/php-cgi" "$install_dir/sbin/php-fpm"; do
-            if [[ -f "$bin" ]]; then
-              strip "$bin" || true
-              codesign --force --sign - "$bin"
+            [[ -f "$bin" ]] && runtime_files+=("$bin")
+          done
+          while IFS= read -r -d '' so; do
+            runtime_files+=("$so")
+          done < <(find "$install_dir/lib/php/extensions" -name "*.so" -type f -print0 2>/dev/null)
+
+          for file in "${runtime_files[@]}"; do
+            strip "$file" || true
+          done
+
+          bundle_dir="$install_dir/lib/envora-dylibs"
+          mkdir -p "$bundle_dir"
+
+          copy_homebrew_deps() {
+            local copied=0
+            local scan_files=("${runtime_files[@]}")
+
+            if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
+              for dylib in "$bundle_dir"/*.dylib; do
+                scan_files+=("$dylib")
+              done
+            fi
+
+            for file in "${scan_files[@]}"; do
+              while IFS= read -r dep; do
+                case "$dep" in
+                  /opt/homebrew/*|/usr/local/*)
+                    if [[ -f "$dep" ]]; then
+                      local target="$bundle_dir/$(basename "$dep")"
+                      if [[ ! -f "$target" ]]; then
+                        cp "$dep" "$target"
+                        chmod u+w "$target"
+                        copied=1
+                      fi
+                    fi
+                    ;;
+                esac
+              done < <(otool -L "$file" | awk 'NR > 1 { print $1 }')
+            done
+
+            if (( copied == 1 )); then
+              return 0
+            fi
+            return 1
+          }
+
+          for _ in {1..12}; do
+            if copy_homebrew_deps; then
+              :
+            else
+              break
             fi
           done
 
-          find "$install_dir/lib/php/extensions" -name "*.so" -type f -print0 2>/dev/null | while IFS= read -r -d '' so; do
-            strip "$so" || true
-            codesign --force --sign - "$so" || true
+          patch_load_commands() {
+            local file="$1"
+            local prefix
+
+            case "$file" in
+              "$install_dir/bin/"*|"$install_dir/sbin/"*)
+                prefix="@loader_path/../lib/envora-dylibs"
+                ;;
+              "$install_dir/lib/php/extensions/"*)
+                prefix="@loader_path/../../../envora-dylibs"
+                ;;
+              "$bundle_dir/"*)
+                prefix="@loader_path"
+                install_name_tool -id "$prefix/$(basename "$file")" "$file" || true
+                ;;
+              *)
+                prefix="@loader_path/../lib/envora-dylibs"
+                ;;
+            esac
+
+            while IFS= read -r dep; do
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/*)
+                  install_name_tool -change "$dep" "$prefix/$(basename "$dep")" "$file" || true
+                  ;;
+              esac
+            done < <(otool -L "$file" | awk 'NR > 1 { print $1 }')
+          }
+
+          for file in "${runtime_files[@]}"; do
+            patch_load_commands "$file"
           done
+          if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
+            for dylib in "$bundle_dir"/*.dylib; do
+              patch_load_commands "$dylib"
+            done
+          fi
+
+          remaining_homebrew_refs=""
+          for file in "${runtime_files[@]}"; do
+            refs="$(otool -L "$file" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local)/' || true)"
+            [[ -n "$refs" ]] && remaining_homebrew_refs+="$file"$'\n'"$refs"$'\n'
+          done
+          if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
+            for dylib in "$bundle_dir"/*.dylib; do
+              refs="$(otool -L "$dylib" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local)/' || true)"
+              [[ -n "$refs" ]] && remaining_homebrew_refs+="$dylib"$'\n'"$refs"$'\n'
+            done
+          fi
+          if [[ -n "$remaining_homebrew_refs" ]]; then
+            echo "Found unbundled Homebrew dylib references:"
+            printf "%s" "$remaining_homebrew_refs"
+            exit 1
+          fi
+
+          for file in "${runtime_files[@]}"; do
+            codesign --force --sign - "$file" || true
+          done
+          if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
+            for dylib in "$bundle_dir"/*.dylib; do
+              codesign --force --sign - "$dylib" || true
+            done
+          fi
 
           "$install_dir/bin/php" -v
           echo "Loadable extensions:"
