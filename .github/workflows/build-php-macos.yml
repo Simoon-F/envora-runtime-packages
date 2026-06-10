@@ -48,7 +48,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deps=(autoconf bison re2c pkg-config openssl@3 libxml2 oniguruma curl libiconv sqlite zlib)
+          deps=(
+            autoconf
+            bison
+            re2c
+            pkg-config
+            openssl@3
+            libxml2
+            oniguruma
+            curl
+            libiconv
+            sqlite
+            zlib
+            bzip2
+            freetype
+            gettext
+            icu4c
+            jpeg-turbo
+            libffi
+            libpng
+            libsodium
+            libxslt
+            libzip
+          )
           missing=()
 
           for dep in "${deps[@]}"; do
@@ -90,12 +112,12 @@ jobs:
 
           export TERM=dumb
           export PATH="$brew_opt/bison/bin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          export CFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include"
-          export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include"
-          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib"
+          export CFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include"
+          export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include"
+          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib"
 
           pkg_config_path="$brew_prefix/lib/pkgconfig"
-          for pkg in openssl@3 libxml2 curl oniguruma libiconv sqlite zlib; do
+          for pkg in openssl@3 libxml2 curl oniguruma libiconv sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libxslt libzip; do
             path="$brew_opt/$pkg/lib/pkgconfig"
             [[ -d "$path" ]] && pkg_config_path="$pkg_config_path:$path"
           done
@@ -110,7 +132,25 @@ jobs:
             --with-curl \
             --with-zlib \
             --with-iconv="$brew_opt/libiconv" \
+            --with-bz2="$brew_opt/bzip2" \
             --enable-mbstring \
+            --enable-bcmath=shared \
+            --enable-calendar=shared \
+            --enable-exif=shared \
+            --enable-ftp=shared \
+            --enable-gd=shared \
+            --with-jpeg \
+            --with-freetype \
+            --with-gettext=shared \
+            --enable-intl=shared \
+            --enable-pcntl=shared \
+            --enable-shmop=shared \
+            --with-sodium=shared \
+            --enable-soap=shared \
+            --enable-sockets=shared \
+            --with-ffi=shared \
+            --with-xsl=shared \
+            --with-zip=shared \
             --enable-fpm \
             --with-pdo-mysql=mysqlnd \
             --with-mysqli=mysqlnd \
@@ -157,7 +197,13 @@ jobs:
           done
 
           "$install_dir/bin/php" -v
+          echo "Loadable extensions:"
+          find "$install_dir/lib/php/extensions" -maxdepth 3 -type f -name "*.so" -print | sort
+
           "$install_dir/bin/php" -m | grep -iE "curl|mbstring|mysqli|mysqlnd|openssl|pdo|opcache"
+          test -f "$install_dir/lib/php/extensions"/*/gd.so
+          test -f "$install_dir/lib/php/extensions"/*/intl.so
+          test -f "$install_dir/lib/php/extensions"/*/zip.so
 
           cd "$package_root"
           tar -czf "$package" "$version"
@@ -205,6 +251,8 @@ jobs:
             echo "Pre-compiled PHP ${VERSION} runtimes for Envora on macOS."
             echo
             echo "Includes php, php-cgi, php-fpm, phpize, and php-config."
+            echo
+            echo "Common official extensions are packaged as loadable .so modules so Envora can enable them on demand."
             echo
             echo "Assets:"
             for package in dist/php-${VERSION}-macos-*.tar.gz; do
