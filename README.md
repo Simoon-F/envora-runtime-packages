@@ -64,6 +64,11 @@ Current and near-term targets:
 - PHP prebuilt packages for macOS
 - Packaging conventions for future runtimes and toolchains
 
+PHP packages should include common official extensions as loadable `.so`
+modules wherever possible. Envora can then enable or disable those modules from
+the desktop UI based on each project's needs, while keeping the default
+`php.ini` conservative.
+
 Planned expansion:
 
 - Node.js
