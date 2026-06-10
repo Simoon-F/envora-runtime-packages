@@ -247,6 +247,9 @@ jobs:
           copy_homebrew_deps() {
             local copied=0
             local scan_files=("${runtime_files[@]}")
+            # libiconv is provided by the macOS system (in dyld shared cache);
+            # Homebrew's version lacks symbols that libintl expects, so skip it.
+            local skip_names="libiconv.2.dylib"
 
             if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
               for dylib in "$bundle_dir"/*.dylib; do
@@ -256,10 +259,15 @@ jobs:
 
             for file in "${scan_files[@]}"; do
               while IFS= read -r dep; do
+                local dep_name
+                dep_name="$(dylib_name "$dep")"
+                if [[ " $skip_names " == *" $dep_name "* ]]; then
+                  continue
+                fi
                 case "$dep" in
                   /opt/homebrew/*|/usr/local/*)
                     if [[ -f "$dep" ]]; then
-                      local target="$bundle_dir/$(dylib_name "$dep")"
+                      local target="$bundle_dir/$dep_name"
                       if [[ ! -f "$target" ]]; then
                         cp -L "$dep" "$target"
                         chmod u+w "$target"
@@ -268,7 +276,7 @@ jobs:
                     fi
                     ;;
                   @rpath/*|@loader_path/*)
-                    if copy_dylib_by_name "$(dylib_name "$dep")"; then
+                    if copy_dylib_by_name "$dep_name"; then
                       copied=1
                     fi
                     ;;
@@ -313,6 +321,13 @@ jobs:
             while IFS= read -r dep; do
               local name
               name="$(dylib_name "$dep")"
+              # libiconv is resolved from the macOS system at runtime
+              if [[ "$name" == "libiconv.2.dylib" ]]; then
+                if [[ "$dep" != "/usr/lib/$name" ]]; then
+                  install_name_tool -change "$dep" "/usr/lib/$name" "$file" || true
+                fi
+                continue
+              fi
               if [[ -f "$bundle_dir/$name" && "$dep" != "$prefix/$name" ]]; then
                 install_name_tool -change "$dep" "$prefix/$name" "$file" || true
               fi
