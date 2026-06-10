@@ -132,7 +132,7 @@ jobs:
             --with-curl \
             --with-zlib \
             --with-iconv="$brew_opt/libiconv" \
-            --with-bz2="$brew_opt/bzip2" \
+            --with-bz2=shared,"$brew_opt/bzip2" \
             --enable-mbstring \
             --enable-bcmath=shared \
             --enable-calendar=shared \
@@ -141,21 +141,21 @@ jobs:
             --enable-gd=shared \
             --with-jpeg \
             --with-freetype \
-            --with-gettext=shared \
+            --with-gettext=shared,"$brew_opt/gettext" \
             --enable-intl=shared \
             --enable-pcntl=shared \
             --enable-shmop=shared \
-            --with-sodium=shared \
+            --with-sodium=shared,"$brew_opt/libsodium" \
             --enable-soap=shared \
             --enable-sockets=shared \
-            --with-ffi=shared \
-            --with-xsl=shared \
-            --with-zip=shared \
+            --with-ffi=shared,"$brew_opt/libffi" \
+            --with-xsl=shared,"$brew_opt/libxslt" \
+            --with-zip=shared,"$brew_opt/libzip" \
             --enable-fpm \
             --with-pdo-mysql=mysqlnd \
             --with-mysqli=mysqlnd \
             --with-libxml \
-            --enable-opcache
+            --enable-opcache=shared
 
       - name: Build and install PHP
         shell: bash
@@ -201,9 +201,29 @@ jobs:
           find "$install_dir/lib/php/extensions" -maxdepth 3 -type f -name "*.so" -print | sort
 
           "$install_dir/bin/php" -m | grep -iE "curl|mbstring|mysqli|mysqlnd|openssl|pdo|opcache"
-          test -f "$install_dir/lib/php/extensions"/*/gd.so
-          test -f "$install_dir/lib/php/extensions"/*/intl.so
-          test -f "$install_dir/lib/php/extensions"/*/zip.so
+          required_extensions=(
+            bcmath
+            bz2
+            calendar
+            exif
+            ffi
+            ftp
+            gd
+            gettext
+            intl
+            opcache
+            pcntl
+            shmop
+            soap
+            sockets
+            sodium
+            xsl
+            zip
+          )
+
+          for extension in "${required_extensions[@]}"; do
+            test -f "$install_dir/lib/php/extensions"/*/"$extension.so"
+          done
 
           cd "$package_root"
           tar -czf "$package" "$version"
