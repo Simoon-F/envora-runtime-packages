@@ -73,6 +73,7 @@ jobs:
             libsodium
             libxslt
             libzip
+            brotli
           )
           missing=()
 
@@ -178,6 +179,7 @@ jobs:
           set -euo pipefail
           version="${{ inputs.version }}"
           arch="${{ matrix.arch }}"
+          brew_prefix="$(brew --prefix)"
           package_root="/tmp/php-package"
           install_dir="$package_root/${version}"
           package="$package_root/php-${version}-macos-${arch}.tar.gz"
