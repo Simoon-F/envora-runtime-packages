@@ -118,7 +118,7 @@ jobs:
           export PATH="$brew_opt/bison/bin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
           export CFLAGS="-I$sdkroot/usr/include -I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
           export CPPFLAGS="-I$sdkroot/usr/include -I$brew_prefix/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
-          export LDFLAGS="-L$sdkroot/usr/lib -L$brew_prefix/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
+          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib -Wl,-headerpad_max_install_names"
           export LIBS="-lintl"
 
           pkg_config_path="$brew_prefix/lib/pkgconfig"
@@ -136,7 +136,7 @@ jobs:
             --with-openssl \
             --with-curl \
             --with-zlib \
-            --with-iconv="$sdkroot/usr" \
+            --with-iconv=/usr \
             --with-bz2=shared,"$brew_opt/bzip2" \
             --enable-mbstring \
             --enable-bcmath=shared \
