@@ -16,6 +16,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build PHP ${{ inputs.version }} for ${{ matrix.arch }}
@@ -112,9 +115,10 @@ jobs:
 
           export TERM=dumb
           export PATH="$brew_opt/bison/bin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          export CFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include"
-          export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include"
-          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib"
+          export CFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
+          export CPPFLAGS="-I$brew_prefix/include -I$brew_opt/libiconv/include -I$brew_opt/zlib/include -I$brew_opt/bzip2/include -I$brew_opt/gettext/include"
+          export LDFLAGS="-L$brew_prefix/lib -L$brew_opt/libiconv/lib -L$brew_opt/zlib/lib -L$brew_opt/bzip2/lib -L$brew_opt/gettext/lib"
+          export LIBS="-lintl"
 
           pkg_config_path="$brew_prefix/lib/pkgconfig"
           for pkg in openssl@3 libxml2 curl oniguruma libiconv sqlite zlib bzip2 freetype gettext icu4c jpeg-turbo libffi libpng libsodium libxslt libzip; do
