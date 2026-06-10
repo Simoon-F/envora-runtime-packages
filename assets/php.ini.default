@@ -1,5 +1,6 @@
 [PHP]
 engine = On
+zend_extension=opcache.so
 short_open_tag = Off
 precision = 14
 output_buffering = 4096
