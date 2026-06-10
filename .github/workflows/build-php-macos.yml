@@ -211,7 +211,7 @@ jobs:
             local name="$1"
             local candidate
 
-            candidate="$(find "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
+            candidate="$(find -L "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
             [[ -n "$candidate" ]] && printf "%s" "$candidate"
           }
 
@@ -224,7 +224,7 @@ jobs:
 
             source="$(find_brew_dylib "$name")"
             if [[ -n "$source" && -f "$source" ]]; then
-              cp "$source" "$target"
+              cp -L "$source" "$target"
               chmod u+w "$target"
               return 0
             fi
@@ -249,7 +249,7 @@ jobs:
                     if [[ -f "$dep" ]]; then
                       local target="$bundle_dir/$(dylib_name "$dep")"
                       if [[ ! -f "$target" ]]; then
-                        cp "$dep" "$target"
+                        cp -L "$dep" "$target"
                         chmod u+w "$target"
                         copied=1
                       fi
