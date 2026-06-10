@@ -25,9 +25,9 @@ while IFS= read -r -d '' so; do
   runtime_files+=("$so")
 done < <(find "$install_dir/lib/php/extensions" -name "*.so" -type f -print0 2>/dev/null)
 
-for file in "${runtime_files[@]}"; do
-  strip "$file" || true
-done
+# PHP extensions resolve symbols from the main runtime at load time. Stripping
+# can remove or hide symbols needed by opcache and other shared modules.
+echo "Skipping strip for PHP runtime files."
 
 dylib_name() {
   basename "$1"
