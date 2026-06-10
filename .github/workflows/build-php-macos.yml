@@ -203,6 +203,35 @@ jobs:
           bundle_dir="$install_dir/lib/envora-dylibs"
           mkdir -p "$bundle_dir"
 
+          dylib_name() {
+            basename "$1"
+          }
+
+          find_brew_dylib() {
+            local name="$1"
+            local candidate
+
+            candidate="$(find "$brew_prefix/opt" "$brew_prefix/Cellar" -name "$name" -type f -print -quit 2>/dev/null || true)"
+            [[ -n "$candidate" ]] && printf "%s" "$candidate"
+          }
+
+          copy_dylib_by_name() {
+            local name="$1"
+            local source
+            local target="$bundle_dir/$name"
+
+            [[ -f "$target" ]] && return 1
+
+            source="$(find_brew_dylib "$name")"
+            if [[ -n "$source" && -f "$source" ]]; then
+              cp "$source" "$target"
+              chmod u+w "$target"
+              return 0
+            fi
+
+            return 1
+          }
+
           copy_homebrew_deps() {
             local copied=0
             local scan_files=("${runtime_files[@]}")
@@ -218,12 +247,17 @@ jobs:
                 case "$dep" in
                   /opt/homebrew/*|/usr/local/*)
                     if [[ -f "$dep" ]]; then
-                      local target="$bundle_dir/$(basename "$dep")"
+                      local target="$bundle_dir/$(dylib_name "$dep")"
                       if [[ ! -f "$target" ]]; then
                         cp "$dep" "$target"
                         chmod u+w "$target"
                         copied=1
                       fi
+                    fi
+                    ;;
+                  @rpath/*|@loader_path/*)
+                    if copy_dylib_by_name "$(dylib_name "$dep")"; then
+                      copied=1
                     fi
                     ;;
                 esac
@@ -265,11 +299,11 @@ jobs:
             esac
 
             while IFS= read -r dep; do
-              case "$dep" in
-                /opt/homebrew/*|/usr/local/*)
-                  install_name_tool -change "$dep" "$prefix/$(basename "$dep")" "$file" || true
-                  ;;
-              esac
+              local name
+              name="$(dylib_name "$dep")"
+              if [[ -f "$bundle_dir/$name" && "$dep" != "$prefix/$name" ]]; then
+                install_name_tool -change "$dep" "$prefix/$name" "$file" || true
+              fi
             done < <(otool -L "$file" | awk 'NR > 1 { print $1 }')
           }
 
@@ -284,12 +318,12 @@ jobs:
 
           remaining_homebrew_refs=""
           for file in "${runtime_files[@]}"; do
-            refs="$(otool -L "$file" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local)/' || true)"
+            refs="$(otool -L "$file" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local|@rpath)/' || true)"
             [[ -n "$refs" ]] && remaining_homebrew_refs+="$file"$'\n'"$refs"$'\n'
           done
           if compgen -G "$bundle_dir/*.dylib" >/dev/null; then
             for dylib in "$bundle_dir"/*.dylib; do
-              refs="$(otool -L "$dylib" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local)/' || true)"
+              refs="$(otool -L "$dylib" | awk 'NR > 1 { print $1 }' | grep -E '^(/opt/homebrew|/usr/local|@rpath)/' || true)"
               [[ -n "$refs" ]] && remaining_homebrew_refs+="$dylib"$'\n'"$refs"$'\n'
             done
           fi
