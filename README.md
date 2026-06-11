@@ -61,7 +61,7 @@ Recommended companion assets:
 
 Current and near-term targets:
 
-- PHP prebuilt packages for macOS
+- PHP prebuilt packages for macOS and Windows
 - Packaging conventions for future runtimes and toolchains
 
 PHP packages should include common official extensions as loadable `.so`
@@ -94,19 +94,31 @@ assets, workflow automation, and packaging notes.
 
 ## PHP Package Pipeline
 
-The PHP macOS workflow is split into explicit stages:
+The PHP build pipeline is split into explicit stages for each platform:
 
+**macOS:**
 ```text
 scripts/php/build-php-macos.sh
 scripts/php/package-macos-runtime.sh
 scripts/php/verify-macos-runtime.sh
+```
+
+**Windows:**
+```text
+scripts/php/build-php-windows.ps1
+scripts/php/package-windows-runtime.ps1
+scripts/php/verify-windows-runtime.ps1
+```
+
+**Shared:**
+```text
 scripts/php/write-manifest.sh
 ```
 
 Packages are published only after verification passes. Verification checks that
 the packaged runtime can start, common extensions are present and loadable, and
-Mach-O dependencies no longer reference Homebrew paths such as `/opt/homebrew`
-or `/usr/local`.
+platform-specific dependency references no longer point to local build
+directories (Homebrew paths on macOS, build-tree paths on Windows).
 
 ## Relationship To Envora
 
